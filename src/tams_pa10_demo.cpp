@@ -88,7 +88,7 @@ int main(int argc, char **argv)
         moveit_msgs::CollisionObject obj;
         collisionObjectFromResource(obj, "bottle", "package://mtc_retract_approach/meshes/bottle_tall.stl");
         obj.header.frame_id = "table_coordinate_grid";
-        obj.pose.position.x = 0.0;
+        obj.pose.position.x = 0.07;
         obj.pose.position.y = 0.0;
         obj.pose.position.z = 0.0;
         obj.pose.orientation.w = 1.0;
@@ -102,10 +102,11 @@ int main(int argc, char **argv)
         obj.primitives.resize(1);
         obj.primitives[0].type = shape_msgs::SolidPrimitive::CYLINDER;
         obj.primitives[0].dimensions = {0.4, 0.09};
-        obj.header.frame_id = "table_coordinate_grid";
+        obj.header.frame_id = "bottle";
         obj.pose.position.x = 0.0;
         obj.pose.position.y = 0.0;
         obj.pose.position.z = obj.primitives[0].dimensions[0] / 2;
+        // obj.pose.position.z = -5.0;
         obj.pose.orientation.w = 1.0;
         return obj;
     }();
@@ -151,18 +152,30 @@ int main(int argc, char **argv)
 
     Stage *first = nullptr;
     {
-        auto fixed = std::make_unique<stages::FixedState>("fixed");
-        // get Scene from a new monitor
         auto scene = std::make_shared<planning_scene::PlanningScene>(t.getRobotModel());
         scene->processCollisionObjectMsg(bottle);
+        scene->setObjectColor(
+            "bottle_padded",
+            []
+            {
+                std_msgs::ColorRGBA color;
+                color.r = 0.0;
+                color.g = 0.0;
+                color.b = 1.0;
+                color.a = 0.5;
+                return color;
+            }());
         scene->getCurrentStateNonConst().setToDefaultValues("qbsc_gripper_group", "fully_open");
+        auto fixed = std::make_unique<stages::FixedState>("fixed");
+
         fixed->setState(scene);
+
         auto _first = std::make_unique<stages::ComputeIK>("first", std::move(fixed));
         _first->setTargetPose(
             []
             {
                 geometry_msgs::PoseStamped p;
-                p.header.frame_id = "table_coordinate_grid";
+                p.header.frame_id = "bottle";
                 p.pose.position.x = 0.0;
                 p.pose.position.y = .01;
                 p.pose.position.z = 0.13;
@@ -208,20 +221,20 @@ int main(int argc, char **argv)
         auto stage = std::make_unique<stages::Connect>(
             "move to pre-grasp pose",
             stages::Connect::GroupPlannerVector{{"pa10_opw_group", sampling_planner}});
+        stage->properties().declare<std::string>("group", "group name used for clearance");
         stage->properties().configureInitFrom(Stage::PARENT);
         stage->setComputeAttempts(connect_compute_attempts);
+        stage->setCostTerm(std::make_shared<cost::Clearance>());
         t.add(std::move(stage));
     }
 
     {
         auto stage = std::make_unique<stages::ModifyPlanningScene>("remove padding");
-        auto bottle_padded_rm{ bottle_padded };
+        auto bottle_padded_rm{bottle_padded};
         bottle_padded_rm.operation = moveit_msgs::CollisionObject::REMOVE;
         stage->removeObject(bottle_padded_rm);
-        stage->setMaxSolutions(1); // TODO: max_solutions does not work here
         t.add(std::move(stage));
     }
-
 
     {
         auto stage = std::make_unique<stages::MoveRelative>("approach", cartesian_planner);
@@ -246,7 +259,7 @@ int main(int argc, char **argv)
             []
             {
                 geometry_msgs::PoseStamped p;
-                p.header.frame_id = "table_coordinate_grid";
+                p.header.frame_id = "bottle";
                 p.pose.position.x = 0.0;
                 p.pose.position.y = -.01;
                 p.pose.position.z = 0.13;
