@@ -33,6 +33,8 @@
 // for createQuaternionMsgFromRollPitchYaw
 #include <tf/transform_datatypes.h>
 
+#include <fmt/format.h>
+
 #define M_TAU (2. * M_PI)
 
 using namespace moveit::task_constructor;
@@ -88,11 +90,17 @@ int main(int argc, char **argv)
         moveit_msgs::CollisionObject obj;
         collisionObjectFromResource(obj, "bottle", "package://mtc_retract_approach/meshes/bottle_tall.stl");
         obj.header.frame_id = "table_coordinate_grid";
-        obj.pose.position.x = 0.07;
-        obj.pose.position.y = 0.0;
+        obj.pose.position.x = 0.1;
+        obj.pose.position.y = 0.03;
         obj.pose.position.z = 0.0;
         obj.pose.orientation.w = 1.0;
         return obj;
+    }();
+    auto bottle_rm = [&bottle]
+    {
+        auto b{bottle};
+        b.operation = moveit_msgs::CollisionObject::REMOVE;
+        return b;
     }();
 
     auto bottle_padded = []
@@ -106,10 +114,18 @@ int main(int argc, char **argv)
         obj.pose.position.x = 0.0;
         obj.pose.position.y = 0.0;
         obj.pose.position.z = obj.primitives[0].dimensions[0] / 2;
-        // obj.pose.position.z = -5.0;
         obj.pose.orientation.w = 1.0;
         return obj;
     }();
+
+    auto bottle_padded_rm = [&bottle_padded]
+    {
+        auto b{bottle_padded};
+        b.operation = moveit_msgs::CollisionObject::REMOVE;
+        return b;
+    }();
+
+    bool padded = pnh.param<bool>("padded", false);
 
     Task t("my_task");
     t.loadRobotModel();
@@ -167,8 +183,8 @@ int main(int argc, char **argv)
             }());
         scene->getCurrentStateNonConst().setToDefaultValues("qbsc_gripper_group", "fully_open");
         auto fixed = std::make_unique<stages::FixedState>("fixed");
-
         fixed->setState(scene);
+        first = fixed.get();
 
         auto _first = std::make_unique<stages::ComputeIK>("first", std::move(fixed));
         _first->setTargetPose(
@@ -194,8 +210,6 @@ int main(int argc, char **argv)
         _first->properties().configureInitFrom(Stage::PARENT, {"group"});
 
         _first->setMaxIKSolutions(32);
-        // todo: add pose property
-        first = _first.get();
         t.add(std::move(_first));
     }
 
@@ -211,15 +225,16 @@ int main(int argc, char **argv)
         t.add(std::move(stage));
     }
 
-    {
+    if(padded){
         auto stage = std::make_unique<stages::ModifyPlanningScene>("add padding");
         stage->addObject(bottle_padded);
+        stage->removeObject(bottle_rm);
         t.add(std::move(stage));
     }
 
     {
         auto stage = std::make_unique<stages::Connect>(
-            "move to pre-grasp pose",
+            "transit",
             stages::Connect::GroupPlannerVector{{"pa10_opw_group", sampling_planner}});
         stage->properties().declare<std::string>("group", "group name used for clearance");
         stage->properties().configureInitFrom(Stage::PARENT);
@@ -228,11 +243,10 @@ int main(int argc, char **argv)
         t.add(std::move(stage));
     }
 
-    {
+    if(padded){
         auto stage = std::make_unique<stages::ModifyPlanningScene>("remove padding");
-        auto bottle_padded_rm{bottle_padded};
-        bottle_padded_rm.operation = moveit_msgs::CollisionObject::REMOVE;
         stage->removeObject(bottle_padded_rm);
+        stage->addObject(bottle);
         t.add(std::move(stage));
     }
 
@@ -330,6 +344,44 @@ int main(int argc, char **argv)
     else if (execute)
     {
         t.execute(*t.solutions().front());
+    }
+
+    // get all solutions of "transit" stage and compute the minimum clearance for each solution
+
+    for (auto const &s : t.stages()->findChild("transit")->solutions())
+    {
+        if(s->isFailure())
+            continue;
+
+        auto &straj = dynamic_cast<SubTrajectory const &>(*s);
+        auto &traj = *straj.trajectory();
+        auto &scene = *straj.start()->scene();
+
+        auto check_scene = scene.diff();
+        if(padded){
+            check_scene->processCollisionObjectMsg(bottle_padded_rm);
+            check_scene->processCollisionObjectMsg(bottle);
+        }
+        collision_detection::DistanceRequest request;
+        request.type = collision_detection::DistanceRequestType::GLOBAL;
+        request.group_name = "pa10_opw_group";
+        request.enableGroup(scene.getRobotModel());
+        collision_detection::DistanceResult result;
+        for (size_t i = 0; i < traj.getWayPointCount(); ++i)
+        {
+            collision_detection::DistanceResult res;
+            check_scene->getCollisionEnv()->distanceRobot(request, res, traj.getWayPoint(i));
+            if (res.minimum_distance.distance < result.minimum_distance.distance)
+            {
+                result = res;
+            }
+        }
+        // print resulting distance and link pairs
+        ROS_INFO_STREAM(fmt::format("Minimum distance: {:.5f} between '{}' and '{}'",
+                                    result.minimum_distance.distance,
+                                    result.minimum_distance.link_names[0],
+                                    result.minimum_distance.link_names[1]));
+
     }
 
     // If wanted, keep introspection alive
