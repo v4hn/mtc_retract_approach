@@ -27,11 +27,12 @@
 #include <geometric_shapes/mesh_operations.h>
 #include <geometric_shapes/shape_extents.h>
 #include <geometric_shapes/shape_operations.h>
+#include <geometric_shapes/bodies.h>
 
 #include <shape_msgs/Mesh.h>
 
-// for createQuaternionMsgFromRollPitchYaw
 #include <tf/transform_datatypes.h>
+#include <eigen_conversions/eigen_msg.h>
 
 #include <fmt/format.h>
 
@@ -45,28 +46,6 @@ void sig_handler(int s)
     if (active_task)
         active_task->preempt();
     ros::requestShutdown();
-}
-
-void collisionObjectFromResource(moveit_msgs::CollisionObject &msg,
-                                 const std::string &id,
-                                 const std::string &resource)
-{
-    msg.meshes.resize(1);
-
-    // load mesh
-    const Eigen::Vector3d scaling(1, 1, 1);
-    shapes::Shape *shape = shapes::createMeshFromResource(resource, scaling);
-    shapes::ShapeMsg shape_msg;
-    shapes::constructMsgFromShape(shape, shape_msg);
-    msg.meshes[0] = boost::get<shape_msgs::Mesh>(shape_msg);
-
-    // set pose
-    msg.mesh_poses.resize(1);
-    msg.mesh_poses[0].orientation.w = 1.0;
-
-    // fill in details for MoveIt
-    msg.id = id;
-    msg.operation = moveit_msgs::CollisionObject::ADD;
 }
 
 double computeMeshHeight(const shape_msgs::Mesh &mesh)
@@ -85,10 +64,23 @@ int main(int argc, char **argv)
     ros::NodeHandle pnh("~");
     spinner.start();
 
-    auto bottle = []
+    bodies::BoundingCylinder bottle_cylinder;
+    auto bottle = [&bottle_cylinder]
     {
         moveit_msgs::CollisionObject obj;
-        collisionObjectFromResource(obj, "bottle", "package://mtc_retract_approach/meshes/bottle_tall.stl");
+        {
+            Eigen::Vector3d const scaling(1, 1, 1);
+            shapes::Shape *shape = shapes::createMeshFromResource("package://mtc_retract_approach/meshes/bottle_tall.stl", scaling);
+            bodies::ConvexMesh(shape).computeBoundingCylinder(bottle_cylinder);
+            shapes::ShapeMsg shape_msg;
+            shapes::constructMsgFromShape(shape, shape_msg);
+            obj.meshes.push_back(boost::get<shape_msgs::Mesh>(shape_msg));
+            obj.mesh_poses.resize(1);
+            obj.mesh_poses[0].orientation.w = 1.0;
+            delete shape;
+        }
+        obj.id = "bottle";
+        obj.operation = moveit_msgs::CollisionObject::ADD;
         obj.header.frame_id = "table_coordinate_grid";
         obj.pose.position.x = 0.1;
         obj.pose.position.y = 0.03;
@@ -103,18 +95,19 @@ int main(int argc, char **argv)
         return b;
     }();
 
-    auto bottle_padded = []
+    bottle_cylinder.length += 0.05;
+    bottle_cylinder.radius += 0.05;
+
+    auto bottle_padded = [&bottle_cylinder]
     {
         moveit_msgs::CollisionObject obj;
         obj.id = "bottle_padded";
         obj.primitives.resize(1);
         obj.primitives[0].type = shape_msgs::SolidPrimitive::CYLINDER;
-        obj.primitives[0].dimensions = {0.4, 0.09};
+        obj.primitives[0].dimensions = {bottle_cylinder.length, bottle_cylinder.radius};
         obj.header.frame_id = "bottle";
-        obj.pose.position.x = 0.0;
-        obj.pose.position.y = 0.0;
-        obj.pose.position.z = obj.primitives[0].dimensions[0] / 2;
-        obj.pose.orientation.w = 1.0;
+        tf::poseEigenToMsg(bottle_cylinder.pose, obj.pose);
+
         return obj;
     }();
 
@@ -221,13 +214,14 @@ int main(int argc, char **argv)
         vec.header.frame_id = "qbsc_gripper/tcp_static";
         vec.vector.z = -1.0;
         stage->setDirection(vec);
-        stage->setMinMaxDistance(.1, .1);
+        stage->setMinMaxDistance(.11, .11);
         t.add(std::move(stage));
     }
 
     if(padded){
         auto stage = std::make_unique<stages::ModifyPlanningScene>("add padding");
         stage->addObject(bottle_padded);
+        stage->allowCollisions("bottle_padded", "table_plate", true);
         stage->removeObject(bottle_rm);
         t.add(std::move(stage));
     }
@@ -245,6 +239,7 @@ int main(int argc, char **argv)
 
     if(padded){
         auto stage = std::make_unique<stages::ModifyPlanningScene>("remove padding");
+        stage->allowCollisions("bottle_padded", "table_plate", false);
         stage->removeObject(bottle_padded_rm);
         stage->addObject(bottle);
         t.add(std::move(stage));
@@ -262,7 +257,7 @@ int main(int argc, char **argv)
                 vec.vector.z = 1.0;
                 return vec;
             }());
-        stage->setMinMaxDistance(.1, .1);
+        stage->setMinMaxDistance(.11, .11);
 
         t.add(std::move(stage));
     }

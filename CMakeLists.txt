@@ -2,10 +2,12 @@ cmake_minimum_required(VERSION 3.0.2)
 project(mtc_retract_approach)
 
 find_package(catkin REQUIRED COMPONENTS
+  eigen_conversions
   moveit_core
   moveit_ros_planning_interface
   moveit_task_constructor_core
   roscpp
+  tf
 )
 
 find_package(fmt REQUIRED)
