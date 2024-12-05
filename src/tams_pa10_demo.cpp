@@ -96,8 +96,8 @@ int main(int argc, char **argv)
         return b;
     }();
 
-    bottle_cylinder.length += 0.05;
     bottle_cylinder.radius += 0.05;
+    bottle_cylinder.length += 0.05;
 
     auto bottle_padded = [&bottle_cylinder]
     {
@@ -363,6 +363,75 @@ int main(int argc, char **argv)
                                         getString(start),
                                         getString(end),
                                         s->cost()));
+        }
+    }
+
+    if (pnh.param<bool>("distance_above_object", false))
+    {
+        double max_height{ bottle_cylinder.length };
+
+        for (auto &s : t.solutions())
+        {
+            auto &seq = dynamic_cast<SolutionSequence const &>(*s);
+            double distance{0.0};
+            std::optional<Eigen::Vector3d> last_position;
+            for (auto &s : seq.solutions())
+            {
+                try
+                {
+                    auto &straj = dynamic_cast<SubTrajectory const &>(*s);
+                    auto traj_ptr = straj.trajectory();
+                    if (!traj_ptr)
+                        continue;
+                    auto& traj = const_cast<robot_trajectory::RobotTrajectory&>(*traj_ptr);
+                    for (size_t i = 0; i < traj.getWayPointCount(); ++i)
+                    {
+                        traj.getWayPointPtr(i)->update();
+                        auto &wp = traj.getWayPoint(i);
+                        // transform to table frame, not the global one
+                        auto &this_position =
+                            (wp.getGlobalLinkTransform("table_coordinate_grid").inverse() * wp.getGlobalLinkTransform("qbsc_gripper/tcp_static")).translation();
+                        if (!last_position)
+                        {
+                            last_position = this_position;
+                            continue;
+                        }
+
+                        if (this_position.z() > max_height && last_position->z() > max_height)
+                        {
+                            distance += (this_position - *last_position).norm();
+                        }
+                        else if (this_position.z() > max_height)
+                        {
+                            auto t = (max_height - last_position->z()) / (this_position.z() - last_position->z());
+                            auto p = *last_position + t * (this_position - *last_position);
+                            distance += (this_position - p).norm();
+                        }
+                        else if (last_position->z() > max_height)
+                        {
+                            auto t = (max_height - last_position->z()) / (this_position.z() - last_position->z());
+                            auto p = *last_position + t * (this_position - *last_position);
+                            distance += (p - *last_position).norm();
+                        }
+                        last_position = this_position;
+                    }
+                }
+                catch (std::bad_cast &e)
+                {
+                    continue;
+                }
+            }
+            auto *start = seq.internalStart();
+            auto *end = seq.internalEnd();
+            auto getString = [](auto const *s)
+            {
+                std::vector<double> v;
+                s->scene()->getCurrentState().copyJointGroupPositions("pa10_opw_group", v);
+                return fmt::format("{::.3f}", v);
+            };
+            ROS_INFO_STREAM(fmt::format("Cost for solution from '{}' to '{}' is {:.5f}", getString(start),
+                                        getString(end),
+                                        distance));
         }
     }
 
