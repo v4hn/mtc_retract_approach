@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.0.2)
 project(mtc_retract_approach)
 
 find_package(catkin REQUIRED COMPONENTS
+  backward_ros
   eigen_conversions
   moveit_core
   moveit_ros_planning_interface
