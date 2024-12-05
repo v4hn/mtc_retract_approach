@@ -35,6 +35,7 @@
 #include <eigen_conversions/eigen_msg.h>
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 
 #define M_TAU (2. * M_PI)
 
@@ -218,7 +219,8 @@ int main(int argc, char **argv)
         t.add(std::move(stage));
     }
 
-    if(padded){
+    if (padded)
+    {
         auto stage = std::make_unique<stages::ModifyPlanningScene>("add padding");
         stage->addObject(bottle_padded);
         stage->allowCollisions("bottle_padded", "table_plate", true);
@@ -237,7 +239,8 @@ int main(int argc, char **argv)
         t.add(std::move(stage));
     }
 
-    if(padded){
+    if (padded)
+    {
         auto stage = std::make_unique<stages::ModifyPlanningScene>("remove padding");
         stage->allowCollisions("bottle_padded", "table_plate", false);
         stage->removeObject(bottle_padded_rm);
@@ -295,6 +298,8 @@ int main(int argc, char **argv)
     }
 
     t.stages()->setCostTerm(std::make_shared<cost::TrajectoryDuration>());
+    // t.stages()->setCostTerm(std::make_shared<cost::PathLength>());
+    // t.stages()->setCostTerm(std::make_shared<cost::LinkMotion>("qbsc_gripper/tcp_static"));
 
     if (!pnh.param<bool>("introspection", true))
         t.enableIntrospection(false);
@@ -341,42 +346,64 @@ int main(int argc, char **argv)
         t.execute(*t.solutions().front());
     }
 
-    // get all solutions of "transit" stage and compute the minimum clearance for each solution
-
-    for (auto const &s : t.stages()->findChild("transit")->solutions())
+    if (pnh.param<bool>("cost_by_start_end", false))
     {
-        if(s->isFailure())
-            continue;
-
-        auto &straj = dynamic_cast<SubTrajectory const &>(*s);
-        auto &traj = *straj.trajectory();
-        auto &scene = *straj.start()->scene();
-
-        auto check_scene = scene.diff();
-        if(padded){
-            check_scene->processCollisionObjectMsg(bottle_padded_rm);
-            check_scene->processCollisionObjectMsg(bottle);
-        }
-        collision_detection::DistanceRequest request;
-        request.type = collision_detection::DistanceRequestType::GLOBAL;
-        request.group_name = "pa10_opw_group";
-        request.enableGroup(scene.getRobotModel());
-        collision_detection::DistanceResult result;
-        for (size_t i = 0; i < traj.getWayPointCount(); ++i)
+        for (auto const &s : t.solutions())
         {
-            collision_detection::DistanceResult res;
-            check_scene->getCollisionEnv()->distanceRobot(request, res, traj.getWayPoint(i));
-            if (res.minimum_distance.distance < result.minimum_distance.distance)
+            auto &seq = dynamic_cast<SolutionSequence const &>(*s);
+            auto *start = seq.internalStart();
+            auto *end = seq.internalEnd();
+            auto getString = [](auto const *s)
             {
-                result = res;
-            }
+                std::vector<double> v;
+                s->scene()->getCurrentState().copyJointGroupPositions("pa10_opw_group", v);
+                return fmt::format("{::.3f}", v);
+            };
+            ROS_INFO_STREAM(fmt::format("Cost for solution from '{}' to '{}' is {:.5f}",
+                                        getString(start),
+                                        getString(end),
+                                        s->cost()));
         }
-        // print resulting distance and link pairs
-        ROS_INFO_STREAM(fmt::format("Minimum distance: {:.5f} between '{}' and '{}'",
-                                    result.minimum_distance.distance,
-                                    result.minimum_distance.link_names[0],
-                                    result.minimum_distance.link_names[1]));
+    }
 
+    if (pnh.param<bool>("transit_clearance", false))
+    {
+        // get all solutions of "transit" stage and compute the minimum clearance for each solution
+        for (auto const &s : t.stages()->findChild("transit")->solutions())
+        {
+            if (s->isFailure())
+                continue;
+
+            auto &straj = dynamic_cast<SubTrajectory const &>(*s);
+            auto &traj = *straj.trajectory();
+            auto &scene = *straj.start()->scene();
+
+            auto check_scene = scene.diff();
+            if (padded)
+            {
+                check_scene->processCollisionObjectMsg(bottle_padded_rm);
+                check_scene->processCollisionObjectMsg(bottle);
+            }
+            collision_detection::DistanceRequest request;
+            request.type = collision_detection::DistanceRequestType::GLOBAL;
+            request.group_name = "pa10_opw_group";
+            request.enableGroup(scene.getRobotModel());
+            collision_detection::DistanceResult result;
+            for (size_t i = 0; i < traj.getWayPointCount(); ++i)
+            {
+                collision_detection::DistanceResult res;
+                check_scene->getCollisionEnv()->distanceRobot(request, res, traj.getWayPoint(i));
+                if (res.minimum_distance.distance < result.minimum_distance.distance)
+                {
+                    result = res;
+                }
+            }
+            // print resulting distance and link pairs
+            ROS_INFO_STREAM(fmt::format("Minimum distance: {:.5f} between '{}' and '{}'",
+                                        result.minimum_distance.distance,
+                                        result.minimum_distance.link_names[0],
+                                        result.minimum_distance.link_names[1]));
+        }
     }
 
     // If wanted, keep introspection alive
