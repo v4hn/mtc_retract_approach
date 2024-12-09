@@ -67,19 +67,35 @@ int main(int argc, char **argv)
     ros::NodeHandle pnh("~");
     spinner.start();
 
+    bool primitive_bottle = pnh.param<bool>("primitive_bottle", false);
+
     bodies::BoundingCylinder bottle_cylinder;
-    auto bottle = [&bottle_cylinder]
+    auto bottle = [&bottle_cylinder, primitive_bottle]
     {
         moveit_msgs::CollisionObject obj;
         {
             Eigen::Vector3d const scaling(1, 1, 1);
             shapes::Shape *shape = shapes::createMeshFromResource("package://mtc_retract_approach/meshes/bottle_tall.stl", scaling);
             bodies::ConvexMesh(shape).computeBoundingCylinder(bottle_cylinder);
-            shapes::ShapeMsg shape_msg;
-            shapes::constructMsgFromShape(shape, shape_msg);
-            obj.meshes.push_back(boost::get<shape_msgs::Mesh>(shape_msg));
-            obj.mesh_poses.resize(1);
-            obj.mesh_poses[0].orientation.w = 1.0;
+
+            if (primitive_bottle)
+            {
+                obj.primitives.resize(1);
+                obj.primitives[0].type = shape_msgs::SolidPrimitive::CYLINDER;
+                obj.primitives[0].dimensions = {bottle_cylinder.length, bottle_cylinder.radius-.005};
+                obj.primitive_poses.resize(1);
+                obj.primitive_poses[0].position.z = bottle_cylinder.length / 2;
+                obj.primitive_poses[0].orientation.w = 1.0;
+            }
+            else
+            {
+                shapes::ShapeMsg shape_msg;
+                shapes::constructMsgFromShape(shape, shape_msg);
+                obj.meshes.push_back(boost::get<shape_msgs::Mesh>(shape_msg));
+                obj.mesh_poses.resize(1);
+                obj.mesh_poses[0].orientation.w = 1.0;
+            }
+
             delete shape;
         }
         obj.id = "bottle";
