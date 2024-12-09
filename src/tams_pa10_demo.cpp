@@ -330,9 +330,16 @@ int main(int argc, char **argv)
     try
     {
         auto start_time{ros::WallTime::now()};
+        ros::WallTime end_time;
+        t.addSolutionCallback([&end_time](const SolutionBase &s)
+                              {
+                                if(end_time.isZero())
+                                    end_time = ros::WallTime::now();
+                              });
         t.plan(pnh.param<int>("solutions", 0));
+        assert(!end_time.isZero());
         ROS_WARN_STREAM("Planning took "
-                        << (ros::WallTime::now() - start_time).toSec() * 1000.0
+                        << (end_time - start_time).toSec() * 1000.0
                         << "ms to find "
                         << t.numSolutions()
                         << " solution(s) with best solution "
