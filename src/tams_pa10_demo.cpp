@@ -37,6 +37,8 @@
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 
+#include <optional>
+
 #define M_TAU (2. * M_PI)
 
 using namespace moveit::task_constructor;
