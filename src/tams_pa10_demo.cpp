@@ -297,9 +297,22 @@ int main(int argc, char **argv)
         t.add(std::move(last));
     }
 
-    t.stages()->setCostTerm(std::make_shared<cost::TrajectoryDuration>());
-    // t.stages()->setCostTerm(std::make_shared<cost::PathLength>());
-    // t.stages()->setCostTerm(std::make_shared<cost::LinkMotion>("qbsc_gripper/tcp_static"));
+    auto cost{ pnh.param<std::string>("cost", "duration") };
+    if(cost == "duration")
+    {
+        t.stages()->setCostTerm(std::make_shared<cost::TrajectoryDuration>());
+    }
+    else if (cost== "pathlength") {
+        t.stages()->setCostTerm(std::make_shared<cost::PathLength>());
+    }
+    else if (cost == "eefpath") {
+        t.stages()->setCostTerm(std::make_shared<cost::LinkMotion>("qbsc_gripper/tcp_static"));
+    }
+    else
+    {
+        ROS_ERROR_STREAM("Unknown cost term '" << cost << "'");
+        return 1;
+    }
 
     if (!pnh.param<bool>("introspection", true))
         t.enableIntrospection(false);
