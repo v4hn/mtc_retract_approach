@@ -174,7 +174,7 @@ int main(int argc, char **argv)
     auto cartesian_planner = std::make_shared<solvers::CartesianPath>();
     cartesian_planner->setMaxVelocityScalingFactor(1);
     cartesian_planner->setMaxAccelerationScalingFactor(1);
-    cartesian_planner->setStepSize(.002);
+    cartesian_planner->setStepSize(.005);
 
     t.setProperty("group", "pa10_opw_group");
 
@@ -221,7 +221,7 @@ int main(int argc, char **argv)
             }());
         _first->properties().configureInitFrom(Stage::PARENT, {"group"});
 
-        _first->setMaxIKSolutions(32);
+        _first->setMaxIKSolutions(16);
         t.add(std::move(_first));
     }
 
@@ -312,7 +312,7 @@ int main(int argc, char **argv)
                 return p;
             }());
 
-        last->setMaxIKSolutions(32);
+        last->setMaxIKSolutions(16);
         t.add(std::move(last));
     }
 
