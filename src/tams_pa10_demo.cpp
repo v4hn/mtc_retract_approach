@@ -165,8 +165,8 @@ int main(int argc, char **argv)
 
     auto joint_interpolation = std::make_shared<solvers::JointInterpolationPlanner>();
 
-    solvers::PlannerInterfacePtr sampling_planner;
-    sampling_planner = std::make_shared<solvers::PipelinePlanner>();
+    auto sampling_planner = std::make_shared<solvers::PipelinePlanner>();
+    sampling_planner->setPlannerId("BITstar");
     sampling_planner->setProperty("goal_joint_tolerance", 1e-5);
 
     std::chrono::duration<double> connect_timeout(1.0);
@@ -250,9 +250,10 @@ int main(int argc, char **argv)
         auto stage = std::make_unique<stages::Connect>(
             "transit",
             stages::Connect::GroupPlannerVector{{"pa10_opw_group", sampling_planner}});
-        stage->properties().declare<std::string>("group", "group name used for clearance");
+        stage->properties().declare<std::string>("group", "group name used for clearance cost");
         stage->properties().configureInitFrom(Stage::PARENT);
         stage->setComputeAttempts(connect_compute_attempts);
+        stage->setTimeout(2.0);
         stage->setCostTerm(std::make_shared<cost::Clearance>());
         t.add(std::move(stage));
     }
@@ -315,15 +316,17 @@ int main(int argc, char **argv)
         t.add(std::move(last));
     }
 
-    auto cost{ pnh.param<std::string>("cost", "duration") };
-    if(cost == "duration")
+    auto cost{pnh.param<std::string>("cost", "duration")};
+    if (cost == "duration")
     {
         t.stages()->setCostTerm(std::make_shared<cost::TrajectoryDuration>());
     }
-    else if (cost== "pathlength") {
+    else if (cost == "pathlength")
+    {
         t.stages()->setCostTerm(std::make_shared<cost::PathLength>());
     }
-    else if (cost == "eefpath") {
+    else if (cost == "eefpath")
+    {
         t.stages()->setCostTerm(std::make_shared<cost::LinkMotion>("qbsc_gripper/tcp_static"));
     }
     else
@@ -414,7 +417,7 @@ int main(int argc, char **argv)
 
     if (pnh.param<bool>("distance_above_object", false))
     {
-        double max_height{ bottle_cylinder.length };
+        double max_height{bottle_cylinder.length};
 
         for (auto &s : t.solutions())
         {
@@ -429,7 +432,7 @@ int main(int argc, char **argv)
                     auto traj_ptr = straj.trajectory();
                     if (!traj_ptr)
                         continue;
-                    auto& traj = const_cast<robot_trajectory::RobotTrajectory&>(*traj_ptr);
+                    auto &traj = const_cast<robot_trajectory::RobotTrajectory &>(*traj_ptr);
                     for (size_t i = 0; i < traj.getWayPointCount(); ++i)
                     {
                         traj.getWayPointPtr(i)->update();
