@@ -250,11 +250,11 @@ int main(int argc, char **argv)
         auto stage = std::make_unique<stages::Connect>(
             "transit",
             stages::Connect::GroupPlannerVector{{"pa10_opw_group", sampling_planner}});
-        stage->properties().declare<std::string>("group", "group name used for clearance cost");
+        // stage->properties().declare<std::string>("group", "group name used for clearance cost");
+        // stage->setCostTerm(std::make_shared<cost::Clearance>());
         stage->properties().configureInitFrom(Stage::PARENT);
         stage->setComputeAttempts(connect_compute_attempts);
         stage->setTimeout(2.0);
-        stage->setCostTerm(std::make_shared<cost::Clearance>());
         t.add(std::move(stage));
     }
 
