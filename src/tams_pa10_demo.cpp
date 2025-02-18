@@ -329,6 +329,9 @@ int main(int argc, char **argv)
     {
         t.stages()->setCostTerm(std::make_shared<cost::LinkMotion>("qbsc_gripper/tcp_static"));
     }
+    else if (cost == "distance_above_object"){
+        // computed below, so don't set a cost term here
+    }
     else
     {
         ROS_ERROR_STREAM("Unknown cost term '" << cost << "'");
@@ -415,7 +418,7 @@ int main(int argc, char **argv)
         }
     }
 
-    if (pnh.param<bool>("distance_above_object", false))
+    if (cost == "distance_above_object")
     {
         double max_height{bottle_cylinder.length};
 
