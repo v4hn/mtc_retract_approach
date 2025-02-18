@@ -166,7 +166,7 @@ int main(int argc, char **argv)
     auto joint_interpolation = std::make_shared<solvers::JointInterpolationPlanner>();
 
     auto sampling_planner = std::make_shared<solvers::PipelinePlanner>();
-    sampling_planner->setPlannerId("BITstar");
+    //sampling_planner->setPlannerId("BITstar");
     sampling_planner->setProperty("goal_joint_tolerance", 1e-5);
 
     std::chrono::duration<double> connect_timeout(1.0);
@@ -254,7 +254,7 @@ int main(int argc, char **argv)
         // stage->setCostTerm(std::make_shared<cost::Clearance>());
         stage->properties().configureInitFrom(Stage::PARENT);
         stage->setComputeAttempts(connect_compute_attempts);
-        stage->setTimeout(2.0);
+        //stage->setTimeout(2.0);
         t.add(std::move(stage));
     }
 
